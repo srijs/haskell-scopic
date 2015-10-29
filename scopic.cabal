@@ -18,8 +18,9 @@ cabal-version:       >=1.10
 
 executable scopic
   main-is:             Main.hs
-  -- other-modules:       
+  other-modules:       Scopic.Types
   -- other-extensions:    
-  build-depends:       base >=4.8 && <4.9
+  build-depends:       base >=4.8 && <4.9,
+                       json-rpc-server >=0.2
   hs-source-dirs:      src
   default-language:    Haskell2010
