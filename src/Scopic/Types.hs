@@ -1,3 +1,5 @@
+{-# LANGUAGE RankNTypes #-}
+
 module Scopic.Types where
 
 import Control.Monad ((>=>))
@@ -33,3 +35,6 @@ filterRequest f = Filter f return
 
 filterResponse :: Monad m => ResponseFilter m -> Filter m
 filterResponse = Filter return
+
+transformFilter :: (forall a. m a -> n a) -> Filter m -> Filter n
+transformFilter f (Filter reqf resf) = Filter (f . reqf) (f . resf)
