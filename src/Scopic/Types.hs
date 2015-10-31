@@ -2,7 +2,11 @@
 
 module Scopic.Types where
 
-import Control.Monad ((>=>))
+import Prelude hiding (id, (.))
+
+import Control.Arrow
+import Control.Category
+import Control.Monad.State.Strict
 
 import Data.ByteString
 
@@ -21,20 +25,25 @@ data ResponseInfo = ResponseInfo
   , resHeaders :: ResponseHeaders
   }
 
-type RequestFilter m = RequestInfo -> m RequestInfo
-type ResponseFilter m = ResponseInfo -> m ResponseInfo
+type F r m a b = Kleisli (StateT r m) a b
+data Filter m s t a b = Filter (F s m a b) (F t m b a)
 
-data Filter m = Filter (RequestFilter m) (ResponseFilter m)
+swap :: Filter m s t a b -> Filter m t s b a
+swap (Filter sf tf) = Filter tf sf
 
-instance Monad m => Monoid (Filter m) where
-  mempty = Filter return return
-  mappend (Filter reql resl) (Filter reqr resr) = Filter (reql >=> reqr) (resl >=> resr)
+instance Monad m => Category (Filter m s t) where
+  id = Filter id id
+  Filter sg tg . Filter sf tf = Filter (sg . sf) (tf . tg)
 
-filterRequest :: Monad m => RequestFilter m -> Filter m
-filterRequest f = Filter f return
+transformFilter :: Monad m => (forall a. m a -> n a) -> Filter m s t a b -> Filter n s t a b
+transformFilter f (Filter sf tf) = Filter (transform f sf) (transform f tf)
+  where transform f k = Kleisli $ mapStateT f . runKleisli k
 
-filterResponse :: Monad m => ResponseFilter m -> Filter m
-filterResponse = Filter return
+filterRequest :: Filter m s t a b -> a -> s -> m (b, s)
+filterRequest (Filter sf _) = runStateT . runKleisli sf
 
-transformFilter :: (forall a. m a -> n a) -> Filter m -> Filter n
-transformFilter f (Filter reqf resf) = Filter (f . reqf) (f . resf)
+filterResponse :: Filter m s t a b -> b -> t -> m (a, t)
+filterResponse (Filter _ tf) = runStateT . runKleisli tf
+
+bimap :: Monad m => (a -> c) -> (c -> a) -> (b -> d) -> (d -> b) -> Filter m s t a b -> Filter m s t c d
+bimap f f' g g' (Filter qf sf) = Filter (f' ^>> qf >>^ g) (g' ^>> sf >>^ f)
