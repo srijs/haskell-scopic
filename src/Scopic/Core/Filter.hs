@@ -22,6 +22,9 @@ type Handler s t m a b = (a, s) -> m (b, t)
 newtype Filter r m a b = Filter { runFilter :: Kleisli (StateT r m) a b }
   deriving (Category, Arrow, Profunctor)
 
+instance Monad m => Functor (Filter r m a) where
+  fmap = rmap
+
 filter :: Handler r r m a b -> Filter r m a b
 filter f = Filter . Kleisli $ StateT . curry f
 
