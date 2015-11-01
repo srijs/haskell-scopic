@@ -1,58 +1,52 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module Scopic.Core.Filter
-  ( Filter, EndoFilter
-  , null, filter
-  , embed, project
-  , mapL, mapR
+  ( Handler, Filter, filter, handle
+  , Middleware(..)
+  , compose, connect
   , swap, transform
   ) where
 
-import Prelude hiding (id, (.), filter, null)
+import Prelude hiding (id, (.), filter, null, map)
 
 import Control.Arrow
 import Control.Category
 import Control.Monad.State.Strict
 
-data Filter m s t a b = Filter
-  { inj :: Kleisli (StateT s m) a b
-  , prj :: Kleisli (StateT t m) b a
+import Data.Profunctor
+
+type Handler s t m a b = (a, s) -> m (b, t)
+
+newtype Filter r m a b = Filter { runFilter :: Kleisli (StateT r m) a b }
+  deriving (Category, Arrow, Profunctor)
+
+filter :: Handler r r m a b -> Filter r m a b
+filter f = Filter . Kleisli $ StateT . curry f
+
+handle :: Filter r m a b -> Handler r r m a b
+handle f = uncurry $ runStateT . runKleisli (runFilter f)
+
+data Middleware s t m a b x y = Middleware
+  { inj :: Filter s m a b
+  , prj :: Filter t m x y
   }
-type EndoFilter m s t a = Filter m s t a a
 
-instance Monad m => Category (Filter m s t) where
-  id = Filter id id
-  Filter sg tg . Filter sf tf = Filter (sg . sf) (tf . tg)
+injK = Kleisli . handle . inj
+prjK = Kleisli . handle . prj
 
-instance Monad m => Monoid (EndoFilter m s t a) where
-  mempty = id
-  mappend = (.)
+compose :: Monad m
+        => Middleware s t m b c x y
+        -> Middleware s t m a b y z
+        -> Middleware s t m a c x z
+compose v w = Middleware (inj v <<< inj w) (prj v >>> prj w)
 
-null :: Monad m => EndoFilter m s t ()
-null = id
+connect :: Monad m => Middleware s t m a b x y -> Handler s t m b x -> Handler s t m a y
+connect w f = runKleisli $ injK w >>> Kleisli f >>> prjK w
 
-filter :: (a -> s -> m (b, s)) -> (b -> t -> m (a, t)) -> Filter m s t a b
-filter f g = Filter (Kleisli $ StateT . f) (Kleisli $ StateT . g)
+swap :: Middleware s t m a b x y -> Middleware t s m x y a b
+swap (Middleware sf tf) = Middleware tf sf
 
-embed :: Filter m s t a b -> a -> s -> m (b, s)
-embed (Filter inj _) = runStateT . runKleisli inj
-
-project :: Filter m s t a b -> b -> t -> m (a, t)
-project (Filter _ prj) = runStateT . runKleisli prj
-
-swap :: Filter m s t a b -> Filter m t s b a
-swap (Filter sf tf) = Filter tf sf
-
-transform :: Monad m => (forall a. m a -> n a) -> Filter m s t a b -> Filter n s t a b
-transform f (Filter sf tf) = Filter (xf sf) (xf tf)
-  where xf k = Kleisli $ mapStateT f . runKleisli k
-
-bimap :: Monad m => (a -> c) -> (c -> a) -> (b -> d) -> (d -> b) -> Filter m s t a b -> Filter m s t c d
-bimap f f' g g' (Filter qf sf) = Filter (f' ^>> qf >>^ g) (g' ^>> sf >>^ f)
-
-mapL :: Monad m => (a -> c) -> (c -> a) -> Filter m s t a b -> Filter m s t c b
-mapL f g = bimap f g id id
-
-mapR :: Monad m => (b -> d) -> (d -> b) -> Filter m s t a b -> Filter m s t a d
-mapR = bimap id id
+transform :: Monad m => (forall a. m a -> n a) -> Filter r m a b -> Filter r n a b
+transform f (Filter k) = Filter . Kleisli $ mapStateT f . runKleisli k
