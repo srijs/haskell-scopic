@@ -2,7 +2,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 
 module Scopic.Core.Filter
-  ( Filter
+  ( Filter, EndoFilter
   , runL, runR
   , bimap, swap, transform
   ) where
