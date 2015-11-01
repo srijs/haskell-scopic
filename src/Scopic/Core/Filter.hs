@@ -3,8 +3,8 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module Scopic.Core.Filter
-  ( Handler, Filter, filter, handle
-  , Middleware(..)
+  ( Handler, Filter, filter
+  , Middleware(..), inject, project
   , compose, connect
   , swap, transform
   ) where
@@ -33,8 +33,11 @@ data Middleware s t m a b x y = Middleware
   , prj :: Filter t m x y
   }
 
-injK = Kleisli . handle . inj
-prjK = Kleisli . handle . prj
+inject :: Middleware s t m a b x y -> (a, s) -> m (b, s)
+inject = handle . inj
+
+project :: Middleware s t m a b x y -> (x, t) -> m (y, t)
+project = handle . prj
 
 compose :: Monad m
         => Middleware s t m b c x y
@@ -43,7 +46,7 @@ compose :: Monad m
 compose v w = Middleware (inj v <<< inj w) (prj v >>> prj w)
 
 connect :: Monad m => Middleware s t m a b x y -> Handler s t m b x -> Handler s t m a y
-connect w f = runKleisli $ injK w >>> Kleisli f >>> prjK w
+connect w f = inject w >=> f >=> project w
 
 swap :: Middleware s t m a b x y -> Middleware t s m x y a b
 swap (Middleware sf tf) = Middleware tf sf
