@@ -3,7 +3,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module Scopic.Core.Filter
-  ( Handler, Filter, filter
+  ( Handler, Filter, filter, pre, post
   , Middleware(..), inject, project
   , compose, connect
   , swap, transform
@@ -31,6 +31,12 @@ filter f = Filter . Kleisli $ StateT . curry f
 handle :: Filter r m a b -> Handler r r m a b
 handle f = uncurry $ runStateT . runKleisli (runFilter f)
 
+pre :: Monad m => Filter s m a b -> Handler s t m b c -> Handler s t m a c
+pre f g = handle f >=> g
+
+post :: Monad m => Handler s t m a b -> Filter t m b c -> Handler s t m a c
+post f g = f >=> handle g
+
 data Middleware s t m a b x y = Middleware
   { inj :: Filter s m a b
   , prj :: Filter t m x y
@@ -49,7 +55,7 @@ compose :: Monad m
 compose v w = Middleware (inj v <<< inj w) (prj v >>> prj w)
 
 connect :: Monad m => Middleware s t m a b x y -> Handler s t m b x -> Handler s t m a y
-connect w f = inject w >=> f >=> project w
+connect w f = inj w `pre` f `post` prj w
 
 swap :: Middleware s t m a b x y -> Middleware t s m x y a b
 swap (Middleware sf tf) = Middleware tf sf
